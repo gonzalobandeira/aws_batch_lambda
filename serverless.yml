@@ -1,0 +1,146 @@
+# https://github.com/ikedaosushi/serverless-batch-example
+# https://github.com/dejonghe/aws-batch-example
+
+service: batch-poc
+
+custom:
+  region: ${opt:region, "eu-central-1"}
+  stage: ${opt:stage, "dev"}
+  batch:
+    compute_env: ${self:service}-compute-env-${self:custom.stage}
+    job_queue: ${self:service}-job-queue-${self:custom.stage}
+    job_definition: ${self:service}-job-definition-${self:custom.stage}
+    docker_image: alpine:latest
+  subnet_ids: subnet-040238def09979844,subnet-04862556280ff8c43,subnet-049eb3dd944e6b359
+  security_groups: sg-0cb1e1963cf2a5c97
+
+provider:
+  name: aws
+  runtime: python3.8
+  region: ${self:custom.region}
+  stage: ${self:custom.stage}
+  environment:
+    JOB_QUEUE: ${self:custom.batch.job_queue}
+    JOB_DEFINITION: ${self:custom.batch.job_definition}
+
+package:
+  individually: true
+  exclude:
+    - README.md
+    - venv/
+    - node_modules
+
+functions:
+  trigger: # Function in charge of triggering the start Batch Job
+    handler: handler.lambda_handler
+    events:
+      - http:
+          method: get
+          path: batch
+    role: !GetAtt [ LambdaTriggerIAMRole, Arn ]
+
+resources:
+  Parameters:
+    SubnetIds:
+      Type: List<AWS::EC2::Subnet::Id>
+      Default: ${self:custom.subnet_ids}
+    SecurityGroupIds:
+      Type: List<AWS::EC2::SecurityGroup::Id>
+      Default: ${self:custom.security_groups}
+
+  Resources:
+    LambdaTriggerIAMRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: 'Allow'
+              Principal:
+                Service:
+                  - 'lambda.amazonaws.com'
+              Action:
+                - 'sts:AssumeRole'
+        ManagedPolicyArns:
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        Policies:
+          - PolicyName: 'SubmitBatch'
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: 'Allow'
+                  Action:
+                    - 'batch:SubmitJob'
+                  Resource: '*'
+    BatchServiceRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - batch.amazonaws.com
+            Action:
+              - sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
+    ecsInstanceRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+    ecsInstanceProfile:
+      Type: AWS::IAM::InstanceProfile
+      Properties:
+        Roles:
+          - !Ref ecsInstanceRole
+    SlsComputeEnv: # Compute environment
+      Type: AWS::Batch::ComputeEnvironment
+      Properties:
+        Type: MANAGED
+        ServiceRole: !GetAtt BatchServiceRole.Arn
+        ComputeEnvironmentName: ${self:custom.batch.compute_env}
+        ComputeResources:
+          MaxvCpus: 10
+          MinvCpus: 0
+          SecurityGroupIds: !Ref SecurityGroupIds
+          InstanceRole: !GetAtt ecsInstanceProfile.Arn
+          Subnets: !Ref SubnetIds
+          Type: EC2
+          InstanceTypes:
+            - optimal
+        State: ENABLED
+    SlsJobQueue: # Job queue
+      Type: AWS::Batch::JobQueue
+      Properties:
+        JobQueueName: ${self:custom.batch.job_queue}
+        ComputeEnvironmentOrder:
+          - Order: 1
+            ComputeEnvironment: !Ref SlsComputeEnv
+        State: ENABLED
+        Priority: 1
+    SlsJobDefinition: # Start Job Definition
+      Type: AWS::Batch::JobDefinition
+      Properties:
+        Type: container
+        JobDefinitionName: ${self:custom.batch.job_definition}
+        ContainerProperties:
+          Memory: 4048
+          Vcpus: 2
+          Image: ${self:custom.batch.docker_image}
+          Command:
+            - "echo"
+            - "Change command to create jobs or to execute queries"
+
+
