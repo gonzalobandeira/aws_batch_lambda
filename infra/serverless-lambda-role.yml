@@ -1,0 +1,39 @@
+Resources:
+  LambdaTriggerIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - 'lambda.amazonaws.com'
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LoggingLambdaAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:${self:custom.region}:#{AWS::AccountId}:log-group:/aws/lambda/*:*:*
+        - PolicyName: SecretLambdaAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref SecretsExample
+        - PolicyName: BatchLambdaAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - batch:*  # ########Limit the policy
+                Resource: arn:aws:batch:*  # ###########Limit the policy

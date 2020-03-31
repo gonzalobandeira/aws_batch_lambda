@@ -3,11 +3,13 @@ import boto3
 import csv
 
 def write_to_bucket():
+    # Grab data from environment
+    aux_bucket = os.environ["AUX_BUCKET"]
     job_number = os.environ.get("AWS_BATCH_JOB_ARRAY_INDEX", "?")
-    s3 = boto3.client("s3")
 
+    s3 = boto3.client("s3")
     data = s3.get_object(
-        Bucket="poc-batch-gbandeira",
+        Bucket=aux_bucket,
         Key="list.csv")["Body"].read().decode('utf-8')
 
     accounts = []
@@ -21,7 +23,7 @@ def write_to_bucket():
     body = f"This is the account info: {accounts[int(job_number)]}"
 
     s3.put_object(
-        Bucket="poc-batch-gbandeira",
+        Bucket=aux_bucket,
         Key=file_name,
         Body=body,
         ContentType=f"text/txt"

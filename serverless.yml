@@ -3,6 +3,8 @@
 
 service: batch-poc
 
+frameworkVersion: ">=1.65.0 <2.0.0"
+
 custom:
   region: ${opt:region, "eu-central-1"}
   stage: ${opt:stage, "dev"}
@@ -11,45 +13,141 @@ custom:
     job_queue: ${self:service}-job-queue-${self:custom.stage}
     job_definition_start: ${self:service}-job-definition-start-${self:custom.stage}
     job_definition_process: ${self:service}-job-definition-process-${self:custom.stage}
-    ecr_repo_process: 775255162681.dkr.ecr.eu-central-1.amazonaws.com/poc-batch-process:latest
-    ecr_repo_start: 775255162681.dkr.ecr.eu-central-1.amazonaws.com/poc-batch-start:latest
-  subnet_ids: subnet-040238def09979844,subnet-04862556280ff8c43,subnet-049eb3dd944e6b359
-  security_groups: sg-0cb1e1963cf2a5c97
-  auxBucket: poc-batch-gbandeira
+    ecr_repo_process: 775255162681.dkr.ecr.eu-central-1.amazonaws.com/poc-batch-process:latest  # How to take the account out of there?
+    ecr_repo_start: 775255162681.dkr.ecr.eu-central-1.amazonaws.com/poc-batch-start:latest  # How to take the account out of there?
+  secrets:
+    name: /prueba/secreto1
+  network:
+    subnet_ids: subnet-040238def09979844,subnet-04862556280ff8c43,subnet-049eb3dd944e6b359
+    security_groups: sg-0cb1e1963cf2a5c97
+  auxBucket: poc-batch-gbandeira  # To be defined
+  stages:
+    dev:
+      environment:
+        global:
+          SERVICE: ${self:service}
+          REGION: ${self:custom.region}
+          LOG_FORMAT: json
+          LOG_LEVEL: DEBUG
+          TEST_SECRET: !Ref SecretsExample
+        trigger:
+          JOB_QUEUE: ${self:custom.batch.job_queue}
+          JOB_DEFINITION_START: ${self:custom.batch.job_definition_start}
+          JOB_DEFINITION_PROCESS: ${self:custom.batch.job_definition_process}
+          AUX_BUCKET: ${self:custom.auxBucket}
+    staging:
+      environment:
+        global:
+          SERVICE: ${self:service}
+          REGION: ${self:custom.region}
+          LOG_FORMAT: json
+          LOG_LEVEL: DEBUG
+          TEST_SECRET: !Ref SecretsExample
+        trigger:
+          JOB_QUEUE: ${self:custom.batch.job_queue}
+          JOB_DEFINITION_START: ${self:custom.batch.job_definition_start}
+          JOB_DEFINITION_PROCESS: ${self:custom.batch.job_definition_process}
+          AUX_BUCKET: ${self:custom.auxBucket}
+    prod:
+      environment:
+        global:
+          SERVICE: ${self:service}
+          REGION: ${self:custom.region}
+          LOG_FORMAT: json
+          LOG_LEVEL: DEBUG
+          TEST_SECRET: !Ref SecretsExample
+        trigger:
+          JOB_QUEUE: ${self:custom.batch.job_queue}
+          JOB_DEFINITION_START: ${self:custom.batch.job_definition_start}
+          JOB_DEFINITION_PROCESS: ${self:custom.batch.job_definition_process}
+          AUX_BUCKET: ${self:custom.auxBucket}
+
+  pythonRequirements:
+    usePipenv: true  # Use Pipfile to extract dependencies
+    dockerizePip: true  # Use Docker to create zip that will be uploaded
+    vendor: ./shared  # Put custom library in shared folder
+    slim: true
+    slimPatterns:
+      - "**/*.egg-info*"
+    noDeploy:
+      - pytest
+    useDownloadCache: false
+    useStaticCache: false
+    zip: true
 
 provider:
   name: aws
-  runtime: python3.8
+  runtime: python3.7
   region: ${self:custom.region}
   stage: ${self:custom.stage}
+  logRetentionInDays: 30
   memorySize: 128
-  environment:
-    JOB_QUEUE: ${self:custom.batch.job_queue}
-    JOB_DEFINITION_START: ${self:custom.batch.job_definition_start}
-    TEST_SECRET: !Ref SecretsExample
+  tags:
+    "di:application-name": ${self:service}
+    "di:environment-type": ${self:custom.stage}
+    "di:cost-center": ds-validations
+    "di:department": data-science-squad
+    "di:region": ${self:custom.region}
+  resourceTags:
+    - Key: "di:application-name"
+      Value: ${self:service}
+    - Key: "di:environment-type"
+      Value: ${self:custom.stage}
+    - Key: "di:cost-center"
+      Value: ds-validations
+    - Key: "di:department"
+      Value: data-science-squad
+    - Key: "di:region"
+      Value: ${self:custom.region}
+  stackTags: ${self:provider.tags}
+  # Set global environment
+  environment: ${self:custom.stages.${self:custom.stage}.environment.global}
 
+plugins:
+  - serverless-pseudo-parameters  # Support for #{AWS::AccountId}
+  - serverless-python-requirements  # Will package everything in a zip with dependencies
+  - serverless-plugin-git-variables  # Supprt ${git:branch}:${git:sha1} variable
 
 package:
   individually: true
   exclude:
+    - functions/*/tests/**
+    - shared/*/tests/**
     - README.md
-    - venv/
-    - node_modules
+    - venv/**
+    - node_modules/**
+    - Docker/**
 
 functions:
   trigger: # Function in charge of triggering the start Batch Job
+    name: ${self:service}-trigger-${self:custom.stage}
+    description: Triggers batch job
+    module: functions/trigger
     handler: handler.lambda_handler
+    environment: ${self:custom.stages.${self:custom.stage}.environment.trigger}
     memorySize: 128
+    timeout: 200
+    package:
+      include:
+        - functions/trigger/**
+        - shared/**
+    tags: ${self:provider.tags}
+    role: !GetAtt [ LambdaTriggerIAMRole, Arn ]
     events:
       - http:
           method: get
           path: batch
-    role: !GetAtt [ LambdaTriggerIAMRole, Arn ]
+      - schedule:
+          name: trigger-${self:custom.stage}
+          description: "Cron trigger for Trigger lambda function"
+          rate: cron(0 7 * * ? *)
+          anabled: false
+
 
 resources:
   - ${file(infra/serverless-param.yml)}
   - ${file(infra/secrets/serverless-secrets.yml)}
-  - ${file(infra/serverless-lambda.yml)}
+  - ${file(infra/serverless-lambda-role.yml)}
   - ${file(infra/serverless-batch.yml)}
 
 

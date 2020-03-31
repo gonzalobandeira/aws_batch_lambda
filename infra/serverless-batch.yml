@@ -41,17 +41,14 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Effect: Allow  # Give access to write in the aux_bucket
+              - Effect: Allow
                 Action:
                   - batch:*
                 Resource:
-                  - arn:aws:batch:eu-central-1:775255162681:job-definition/*
-                  - arn:aws:batch:eu-central-1:775255162681:job-queue/*
+                  - arn:aws:batch:eu-central-1:775255162681:job-definition/*  # ###########Limit the policy
+                  - arn:aws:batch:eu-central-1:775255162681:job-queue/*  # ###########Limit the policy
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
-
-
-
 
   ecsInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -75,6 +72,7 @@ Resources:
         InstanceTypes:
           - optimal
       State: ENABLED
+
   SlsJobQueue: # Job queue
     Type: AWS::Batch::JobQueue
     Properties:
@@ -84,6 +82,7 @@ Resources:
           ComputeEnvironment: !Ref SlsComputeEnv
       State: ENABLED
       Priority: 1
+
   StartJobDefinition: # Start Job Definition
     Type: AWS::Batch::JobDefinition
     Properties:
@@ -93,6 +92,14 @@ Resources:
         Memory: 528
         Vcpus: 2
         Image: !Ref EcrImageStart
+        Environment:
+          - Name: REGION
+            Value: ${self:custom.region}
+          - Name: JOB_DEFINITION_PROCESS
+            Value: ${self:custom.batch.job_definition_process}
+          - Name: JOB_QUEUE
+            Value: ${self:custom.batch.job_queue}
+
   ProcessJobDefinition: # Process Job Definition
     Type: AWS::Batch::JobDefinition
     Properties:
@@ -102,3 +109,6 @@ Resources:
         Memory: 528
         Vcpus: 2
         Image: !Ref EcrImageProcess
+        Environment:
+            - Name: AUX_BUCKET
+              Value: ${self:custom.auxBucket}

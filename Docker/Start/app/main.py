@@ -1,16 +1,19 @@
 import csv
+import os
 from io import StringIO
-import random
-import string
+
 import boto3
 
 
 def write_to_bucket():
-    file_name = f"list.csv"
+    # Grab data from environment
+    jobqueue = os.environ['JOB_QUEUE']
+    jobdef_process = os.environ['JOB_DEFINITION_PROCESS']
+    region = os.environ['REGION']
 
     # Create csv file with a list
     data = ["avion", "barco", "coche"]
-
+    file_name = f"list.csv"
     csv_buffer = StringIO()
     wr = csv.writer(csv_buffer, quoting=csv.QUOTE_ALL)
     wr.writerow(data)
@@ -23,37 +26,24 @@ def write_to_bucket():
     )
     print(f"File {file_name} saved correctly")
 
-
     # Submit the jobs according to length of the list
     # Set up a batch client
     session = boto3.session.Session()
-    client = session.client('batch', region_name="eu-central-1")
+    client = session.client('batch', region_name=region)
 
-    # Create unique name for the job (this does not need to be unique)
-    job1Name = 'job1' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
-    # Grab data from environment
-    jobqueue = "batch-poc-job-queue-dev"
-    jobdef = "batch-poc-job-definition-process-dev"
+    jobname = "ProcessJob"
 
-    jobProcess = client.submit_job(
-        jobName=job1Name,
+    job = client.submit_job(
+        jobName=jobname,
         jobQueue=jobqueue,
-        jobDefinition=jobdef,
+        jobDefinition=jobdef_process,
         arrayProperties={
             "size": len(data)
-        })
-    """
-    ,
-        containerOverrides={
-            'command': ['echo', "This is a submitted", "echo", "${AWS_BATCH_JOB_ARRAY_INDEX}"]
-        },
-        dependsOn=[
-            {
-                'type': 'SEQUENTIAL'
-            },
-        ]
+        }
     )
-    """
-    print("Job submitted correctly")
+
+    print(f"{job['jobName']} submitted correctly")
+
+
 if __name__ == '__main__':
     write_to_bucket()
