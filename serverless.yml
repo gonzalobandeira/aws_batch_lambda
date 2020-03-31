@@ -9,19 +9,25 @@ custom:
   batch:
     compute_env: ${self:service}-compute-env-${self:custom.stage}
     job_queue: ${self:service}-job-queue-${self:custom.stage}
-    job_definition: ${self:service}-job-definition-${self:custom.stage}
-    docker_image: alpine:latest
+    job_definition_start: ${self:service}-job-definition-start-${self:custom.stage}
+    job_definition_process: ${self:service}-job-definition-process-${self:custom.stage}
+    ecr_repo_process: 775255162681.dkr.ecr.eu-central-1.amazonaws.com/poc-batch-process:latest
+    ecr_repo_start: 775255162681.dkr.ecr.eu-central-1.amazonaws.com/poc-batch-start:latest
   subnet_ids: subnet-040238def09979844,subnet-04862556280ff8c43,subnet-049eb3dd944e6b359
   security_groups: sg-0cb1e1963cf2a5c97
+  auxBucket: poc-batch-gbandeira
 
 provider:
   name: aws
   runtime: python3.8
   region: ${self:custom.region}
   stage: ${self:custom.stage}
+  memorySize: 128
   environment:
     JOB_QUEUE: ${self:custom.batch.job_queue}
-    JOB_DEFINITION: ${self:custom.batch.job_definition}
+    JOB_DEFINITION_START: ${self:custom.batch.job_definition_start}
+    TEST_SECRET: !Ref SecretsExample
+
 
 package:
   individually: true
@@ -33,6 +39,7 @@ package:
 functions:
   trigger: # Function in charge of triggering the start Batch Job
     handler: handler.lambda_handler
+    memorySize: 128
     events:
       - http:
           method: get
@@ -40,107 +47,12 @@ functions:
     role: !GetAtt [ LambdaTriggerIAMRole, Arn ]
 
 resources:
-  Parameters:
-    SubnetIds:
-      Type: List<AWS::EC2::Subnet::Id>
-      Default: ${self:custom.subnet_ids}
-    SecurityGroupIds:
-      Type: List<AWS::EC2::SecurityGroup::Id>
-      Default: ${self:custom.security_groups}
+  - ${file(infra/serverless-param.yml)}
+  - ${file(infra/secrets/serverless-secrets.yml)}
+  - ${file(infra/serverless-lambda.yml)}
+  - ${file(infra/serverless-batch.yml)}
 
-  Resources:
-    LambdaTriggerIAMRole:
-      Type: AWS::IAM::Role
-      Properties:
-        AssumeRolePolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-            - Effect: 'Allow'
-              Principal:
-                Service:
-                  - 'lambda.amazonaws.com'
-              Action:
-                - 'sts:AssumeRole'
-        ManagedPolicyArns:
-          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
-        Policies:
-          - PolicyName: 'SubmitBatch'
-            PolicyDocument:
-              Version: '2012-10-17'
-              Statement:
-                - Effect: 'Allow'
-                  Action:
-                    - 'batch:SubmitJob'
-                  Resource: '*'
-    BatchServiceRole:
-      Type: AWS::IAM::Role
-      Properties:
-        AssumeRolePolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - batch.amazonaws.com
-            Action:
-              - sts:AssumeRole
-        ManagedPolicyArns:
-          - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
-    ecsInstanceRole:
-      Type: AWS::IAM::Role
-      Properties:
-        AssumeRolePolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - ec2.amazonaws.com
-            Action:
-              - sts:AssumeRole
-        ManagedPolicyArns:
-          - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
-    ecsInstanceProfile:
-      Type: AWS::IAM::InstanceProfile
-      Properties:
-        Roles:
-          - !Ref ecsInstanceRole
-    SlsComputeEnv: # Compute environment
-      Type: AWS::Batch::ComputeEnvironment
-      Properties:
-        Type: MANAGED
-        ServiceRole: !GetAtt BatchServiceRole.Arn
-        ComputeEnvironmentName: ${self:custom.batch.compute_env}
-        ComputeResources:
-          MaxvCpus: 10
-          MinvCpus: 0
-          SecurityGroupIds: !Ref SecurityGroupIds
-          InstanceRole: !GetAtt ecsInstanceProfile.Arn
-          Subnets: !Ref SubnetIds
-          Type: EC2
-          InstanceTypes:
-            - optimal
-        State: ENABLED
-    SlsJobQueue: # Job queue
-      Type: AWS::Batch::JobQueue
-      Properties:
-        JobQueueName: ${self:custom.batch.job_queue}
-        ComputeEnvironmentOrder:
-          - Order: 1
-            ComputeEnvironment: !Ref SlsComputeEnv
-        State: ENABLED
-        Priority: 1
-    SlsJobDefinition: # Start Job Definition
-      Type: AWS::Batch::JobDefinition
-      Properties:
-        Type: container
-        JobDefinitionName: ${self:custom.batch.job_definition}
-        ContainerProperties:
-          Memory: 4048
-          Vcpus: 2
-          Image: ${self:custom.batch.docker_image}
-          Command:
-            - "echo"
-            - "Change command to create jobs or to execute queries"
+
+
 
 

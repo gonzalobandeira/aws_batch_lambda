@@ -1,0 +1,13 @@
+Parameters:
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Default: ${self:custom.subnet_ids}
+  SecurityGroupIds:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Default: ${self:custom.security_groups}
+  EcrImageStart:
+    Type: String
+    Default: ${self:custom.batch.ecr_repo_start}
+  EcrImageProcess:
+    Type: String
+    Default: ${self:custom.batch.ecr_repo_process}
